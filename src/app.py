@@ -97,23 +97,20 @@ def prepare_map_data(df):
     
     state_totals['state_raw'] = state_totals['state'].astype(str).str.strip()
     
-    # Comprehensive Mapping (User Provided)
-    state_mapping = {
-        'west bengal': 'WEST BENGAL', 'west bangal': 'WEST BENGAL', 
-        'odisha': 'ODISHA', 'orissa': 'ORISSA', 
-        'uttarakhand': 'UTTARANCHAL', 'uttaranchal': 'UTTARANCHAL', 
-        'jammu & kashmir': 'JAMMU AND KASHMIR', 'jammu and kashmir': 'JAMMU AND KASHMIR',
-        'dadra & nagar haveli': 'DADRA AND NAGAR HAVELI', 'dadra and nagar haveli': 'DADRA AND NAGAR HAVELI',
-        'daman & diu': 'DAMAN AND DIU', 'daman and diu': 'DAMAN AND DIU',
-        'andaman & nicobar islands': 'ANDAMAN AND NICOBAR', 'andaman and nicobar islands': 'ANDAMAN AND NICOBAR',
-        'ladakh': 'LADAKH', 'pondicherry': 'PUDUCHERRY', 'puducherry': 'PUDUCHERRY',
-        'delhi': 'NCT OF DELHI' # Check map for this
+    # 3. GeoJSON Specific Mapping
+    # The data is already clean (Title Case), but we need to match the specific UPPERCASE names in the GeoJSON file.
+    # Most will match automatically with .upper(), but we handle exceptions here.
+    geojson_fix_map = {
+        'NCT Of Delhi': 'NCT OF DELHI', 
+        'Andaman And Nicobar Islands': 'ANDAMAN AND NICOBAR', # GeoJSON often shortens this
+        'Dadra And Nagar Haveli And Daman And Diu': 'DADRA AND NAGAR HAVELI AND DAMAN AND DIU', # Verify this matches your specific GeoJSON
     }
     
     # Map raw states to upper case map keys
-    state_totals['geo_state'] = state_totals['state_raw'].str.lower().map(state_mapping).fillna(
-        state_totals['state_raw'].str.strip().str.upper()
-    )
+    # First try direct upper case, then apply specific fixes for the map file
+    state_totals['geo_state'] = state_totals['state_raw'].str.upper()
+    state_totals['geo_state'] = state_totals['geo_state'].replace({k.upper(): v for k, v in geojson_fix_map.items()})
+
     return state_totals, target_col
 
 if india_map is not None:

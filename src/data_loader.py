@@ -32,6 +32,131 @@ def load_files_from_folder(folder_name):
         
     return pd.concat(dfs, ignore_index=True)
 
+def normalize_state_names(df):
+    if 'state' not in df.columns:
+        return df
+    
+    # 1. Basic cleaning: Strip and Title Case
+    df['state'] = df['state'].astype(str).str.strip().str.title()
+    
+    # 2. Canonical Mapping for all 36 States/UTs
+    state_mapping = {
+        # West Bengal
+        'West Bengal': 'West Bengal', 'West Bangal': 'West Bengal', 'Wb': 'West Bengal', 'Westbengal': 'West Bengal',
+        
+        # Odisha
+        'Odisha': 'Odisha', 'Orissa': 'Odisha', 'Orisa': 'Odisha',
+        
+        # Jammu & Kashmir
+        'Jammu And Kashmir': 'Jammu and Kashmir', 'Jammu & Kashmir': 'Jammu and Kashmir', 'J&K': 'Jammu and Kashmir', 'Jnk': 'Jammu and Kashmir',
+        
+        # Andaman & Nicobar
+        'Andaman And Nicobar Islands': 'Andaman and Nicobar Islands', 'Andaman & Nicobar Islands': 'Andaman and Nicobar Islands',
+        'Andaman And Nicobar': 'Andaman and Nicobar Islands', 'A & N Islands': 'Andaman and Nicobar Islands',
+        
+        # Dadra & Nagar Haveli and Daman & Diu (Merged UT)
+        'Dadra And Nagar Haveli': 'Dadra and Nagar Haveli and Daman and Diu', 'Dadra & Nagar Haveli': 'Dadra and Nagar Haveli and Daman and Diu',
+        'Daman And Diu': 'Dadra and Nagar Haveli and Daman and Diu', 'Daman & Diu': 'Dadra and Nagar Haveli and Daman and Diu',
+        'DNH': 'Dadra and Nagar Haveli and Daman and Diu', 'D&NH': 'Dadra and Nagar Haveli and Daman and Diu',
+        
+        # Delhi
+        'Delhi': 'NCT of Delhi', 'New Delhi': 'NCT of Delhi', 'Nct Of Delhi': 'NCT of Delhi', 'Delhi Nct': 'NCT of Delhi',
+        
+        # Puducherry
+        'Puducherry': 'Puducherry', 'Pondicherry': 'Puducherry', 'Pondi': 'Puducherry',
+        
+        # Uttarakhand
+        'Uttarakhand': 'Uttarakhand', 'Uttaranchal': 'Uttarakhand', 'Uk': 'Uttarakhand',
+        
+        # Uttar Pradesh
+        'Uttar Pradesh': 'Uttar Pradesh', 'Up': 'Uttar Pradesh', 'Uttarpradesh': 'Uttar Pradesh',
+        
+        # Telangana
+        'Telangana': 'Telangana', 'Telengana': 'Telangana',
+        
+        # Chhattisgarh
+        'Chhattisgarh': 'Chhattisgarh', 'Chhatisgarh': 'Chhattisgarh', 'Cg': 'Chhattisgarh',
+        
+        # Maharashtra
+        'Maharashtra': 'Maharashtra', 'Mh': 'Maharashtra',
+        
+        # Madhya Pradesh
+        'Madhya Pradesh': 'Madhya Pradesh', 'Mp': 'Madhya Pradesh',
+        
+        # Tamil Nadu
+        'Tamil Nadu': 'Tamil Nadu', 'Tamilnadu': 'Tamil Nadu', 'Tn': 'Tamil Nadu',
+        
+        # Andhra Pradesh
+        'Andhra Pradesh': 'Andhra Pradesh', 'Andhrapradesh': 'Andhra Pradesh', 'Ap': 'Andhra Pradesh',
+        
+        # Arunachal Pradesh
+        'Arunachal Pradesh': 'Arunachal Pradesh', 'Arunachalpradesh': 'Arunachal Pradesh',
+        
+        # Himachal Pradesh
+        'Himachal Pradesh': 'Himachal Pradesh', 'Himachalpradesh': 'Himachal Pradesh', 'Hp': 'Himachal Pradesh',
+        
+        # Karnataka
+        'Karnataka': 'Karnataka', 'Ka': 'Karnataka',
+        
+        # Kerala
+        'Kerala': 'Kerala', 'Kl': 'Kerala',
+        
+        # Ladakh
+        'Ladakh': 'Ladakh',
+        
+        # Lakshadweep
+        'Lakshadweep': 'Lakshadweep',
+        
+        # Goa
+        'Goa': 'Goa',
+        
+        # Gujarat
+        'Gujarat': 'Gujarat', 'Gujrat': 'Gujarat',
+        
+        # Haryana
+        'Haryana': 'Haryana',
+        
+        # Punjab
+        'Punjab': 'Punjab',
+        
+        # Rajasthan
+        'Rajasthan': 'Rajasthan', 'Rajsthan': 'Rajasthan',
+        
+        # Sikkim
+        'Sikkim': 'Sikkim',
+        
+        # Tripura
+        'Tripura': 'Tripura',
+        
+        # Assam
+        'Assam': 'Assam', 'Asam': 'Assam',
+        
+        # Bihar
+        'Bihar': 'Bihar',
+        
+        # Chandigarh
+        'Chandigarh': 'Chandigarh',
+        
+        # Jharkhand
+        'Jharkhand': 'Jharkhand',
+        
+        # Manipur
+        'Manipur': 'Manipur',
+        
+        # Meghalaya
+        'Meghalaya': 'Meghalaya',
+        
+        # Mizoram
+        'Mizoram': 'Mizoram',
+        
+        # Nagaland
+        'Nagaland': 'Nagaland'
+    }
+    
+    # Apply mapping (if key exists, replace; else keep original)
+    df['state'] = df['state'].replace(state_mapping)
+    return df
+
 def clean_dataframe(df, data_type):
     if df.empty:
         return df
@@ -42,6 +167,9 @@ def clean_dataframe(df, data_type):
         # Drop rows with invalid dates if critical, or keep them?
         # Let's drop empty dates as they break time-series
         df = df.dropna(subset=['date'])
+        
+    # NORMALIZE STATE NAMES
+    df = normalize_state_names(df)
 
     # Numeric conversions
     # Identify numeric columns (usually start with 'age' or 'bio' or 'demo' or just numbers)
