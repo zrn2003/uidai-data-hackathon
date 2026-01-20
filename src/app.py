@@ -1,199 +1,151 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from data_loader import load_and_merge_all
-from models import load_or_train_model, forecast_next_30_days, cluster_districts
+from data_loader import load_processed_data
 
-st.set_page_config(page_title="Aadhaar Analytics Dashboard", layout="wide", page_icon="🇮🇳")
-
-# Custom CSS for Professional UI
-st.markdown("""
-<style>
-    .main { background: #0e1117; }
-    h1, h2, h3 { font-family: 'Roboto', sans-serif; color: #00ffcc; }
-    .stMetric { background-color: #1f2937; padding: 15px; border-radius: 8px; border: 1px solid #374151; }
-    .css-1d391kg { padding-top: 1rem; }
-</style>
-""", unsafe_allow_html=True)
+# Use a minimalist approach first to ensure data visibility
+st.set_page_config(page_title="Aadhaar Analytics", layout="wide")
 
 @st.cache_data
 def get_data():
-    return load_and_merge_all()
+    return load_processed_data()
 
-@st.cache_resource
-def get_ai_models(df):
-    model, df_scored = load_or_train_model(df)
-    return df_scored
+try:
+    with st.spinner("Loading Data from scratch..."):
+        df = get_data()
+except Exception as e:
+    st.error(f"Critical Data Error: {e}")
+    st.stop()
 
-def main():
-    st.title("🇮🇳 Aadhaar India-Wide Analytics Dashboard")
-    st.markdown("### Policy Optimization & Integrity Command Center")
+if df.empty:
+    st.warning("Dataframe is empty. Check logs.")
+    st.stop()
 
-    with st.spinner("Ingesting 12+ Datasets & Processing 100M+ Records (Simulated)..."):
-        raw_df = get_data()
-        
-    if raw_df.empty:
-        st.error("Dataset Empty. Please check `dataset/` folder.")
-        return
+# --- HEADER ---
+st.title("🇮🇳 Aadhaar Dashboard (Live Build)")
+st.caption(f"Loaded {len(df):,} records | Date Range: {df['date'].min().date()} - {df['date'].max().date()}")
 
-    # Sidebar: Global Filters
-    st.sidebar.title("🔍 Analytics Filters")
+# --- SIDEBAR CONTROLS ---
+st.sidebar.header("Filters")
+selected_state = st.sidebar.selectbox("State", ["All"] + sorted(df['state'].unique().astype(str)))
+
+if selected_state != "All":
+    filtered_df = df[df['state'] == selected_state]
+else:
+    filtered_df = df
+
+selected_district = "All"
+if selected_state != "All":
+    districts = ["All"] + sorted(filtered_df['district'].unique().astype(str))
+    selected_district = st.sidebar.selectbox("District", districts)
+    if selected_district != "All":
+        filtered_df = filtered_df[filtered_df['district'] == selected_district]
+
+# --- KPI METRICS ---
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Enrolments", f"{filtered_df['total_enrol'].sum():,.0f}")
+col2.metric("Total Updates (Bio)", f"{filtered_df['total_bio'].sum():,.0f}")
+col3.metric("Total Updates (Demo)", f"{filtered_df['total_demo'].sum():,.0f}")
+
+# --- RAW DATA CHECK ---
+with st.expander("🔍 View Raw Source Data", expanded=False):
+    st.dataframe(filtered_df.head(100))
+
+# --- CHARTS ---
+st.subheader("Trends Over Time")
+# Aggregating by Date to prevent slow rendering of millions of points
+daily_agg = filtered_df.groupby('date')[['total_enrol', 'total_bio', 'total_demo']].sum().reset_index()
+
+if not daily_agg.empty:
+    melted = daily_agg.melt('date', var_name='Metric', value_name='Count')
+    fig = px.line(melted, x='date', y='Count', color='Metric', title="Daily Trends")
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("No trend data available.")
+
+# --- GEOSPATIAL INTELLIGENCE ---
+st.subheader("🗺️ Geographic Insights")
+import requests
+
+@st.cache_data
+def get_india_geojson():
+    # Public URL for India States GeoJSON (High quality)
+    url = "https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
+    try:
+        r = requests.get(url)
+        return r.json()
+    except Exception as e:
+        st.error(f"Could not load map data: {e}")
+        return None
+
+@st.cache_data
+def get_district_geojson():
+    # Load India District GeoJSON (Cached)
+    url = "https://raw.githubusercontent.com/geohacker/india/master/district/india_district.geojson"
+    try:
+        r = requests.get(url)
+        return r.json()
+    except Exception as e:
+        st.error(f"Could not load district map data: {e}")
+        return None
+
+if selected_state == "All":
+    # STATE LEVEL CHOROPLETH
+    st.markdown("**State-wise Enrolment Saturation**")
     
-    # Date Filter
-    if 'date' in raw_df.columns:
-        min_date = raw_df['date'].min()
-        max_date = raw_df['date'].max()
-        date_range = st.sidebar.date_input("Date Range", [min_date, max_date])
+    geojson = get_india_geojson()
+    if geojson:
+        # Aggregation
+        map_df = filtered_df.groupby('state')[['total_enrol', 'total_bio']].sum().reset_index()
+        map_df['Total'] = map_df['total_enrol'] + map_df['total_bio']
+        
+        # Plotly Choropleth
+        fig_map = px.choropleth(
+            map_df,
+            geojson=geojson,
+            featureidkey='properties.ST_NM',
+            locations='state',
+            color='Total',
+            color_continuous_scale='Viridis',
+            title="Total Activity by State (Heatmap)",
+            hover_data=['total_enrol', 'total_bio']
+        )
+        fig_map.update_geos(fitbounds="locations", visible=False)
+        st.plotly_chart(fig_map, use_container_width=True)
+    else:
+        # Fallback to bar if map fails
+        geo_agg = filtered_df.groupby('state')[['total_enrol', 'total_bio']].sum().reset_index()
+        geo_agg['Total'] = geo_agg['total_enrol'] + geo_agg['total_bio']
+        fig_geo = px.bar(geo_agg.sort_values('Total', ascending=False).head(20), x='state', y='Total')
+        st.plotly_chart(fig_geo, use_container_width=True)
+
+else:
+    # DISTRICT LEVEL CHOROPLETH
+    st.markdown(f"**District-wise Saturation for {selected_state}**")
     
-    # Location Filter
-    states = ['All India'] + sorted(list(raw_df['state'].unique()))
-    selected_state = st.sidebar.selectbox("State / Union Territory", states)
+    geo_agg = filtered_df.groupby('district')[['total_enrol', 'total_bio']].sum().reset_index()
+    geo_agg['Total'] = geo_agg['total_enrol'] + geo_agg['total_bio']
     
-    df_filtered = raw_df.copy()
-    if selected_state != 'All India':
-        df_filtered = df_filtered[df_filtered['state'] == selected_state]
-        
-    # Apply Date Filter
-    if 'date' in df_filtered.columns and len(date_range) == 2:
-        df_filtered = df_filtered[(df_filtered['date'] >= pd.to_datetime(date_range[0])) & 
-                                  (df_filtered['date'] <= pd.to_datetime(date_range[1]))]
-                                  
-    st.sidebar.markdown("---")
-    st.sidebar.download_button(
-        label="📥 Export Cleaned Data",
-        data=df_filtered.to_csv(index=False).encode('utf-8'),
-        file_name='aadhaar_analytics_export.csv',
-        mime='text/csv'
-    )
-
-    # Run AI Analysis on Filtered Data
-    df_filtered = get_ai_models(df_filtered)
-
-    # --- MAIN TABS ---
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Executive Overview", 
-        "🗺️ Geospatial Intelligence", 
-        "👥 Demographics", 
-        "📈 Forecasting Trends",
-        "🧠 AI Insights (Clusters)"
-    ])
-
-    # --- TAB 1: OVERVIEW ---
-    with tab1:
-        # Top KPIs
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Enrolments", f"{int(df_filtered['total_enrol'].sum()):,}")
-        c2.metric("Biometric Updates", f"{int(df_filtered['total_bio'].sum()):,}")
-        c3.metric("Demographic Updates", f"{int(df_filtered['total_demo'].sum()):,}")
-        anomalies = df_filtered[df_filtered.get('is_anomaly', 1) == -1]
-        c4.metric("⚠️ Anomalies Detected", f"{len(anomalies)}", delta_color="inverse")
-        
-        st.markdown("---")
-        
-        # Recent Anomalies Table
-        st.subheader("🚨 Recent Integrity Alerts")
-        if not anomalies.empty:
-            st.dataframe(
-                anomalies.sort_values('date', ascending=False).head(10)[['date', 'state', 'district', 'pincode', 'anomaly_reason']],
-                use_container_width=True
-            )
-        else:
-            st.success("No anomalies detected in the current view.")
-
-    # --- TAB 2: GEOSPATIAL ---
-    with tab2:
-        st.subheader(f" Geographic Distribution - {selected_state}")
-        
-        # Use Treemap to simulate "Drill Down" from State -> District -> Pincode
-        # This is very effective for hierarchical data without shapefiles
-        st.markdown("**Hierarchy Map (State > District > Pincode)**")
-        
-        tree_df = df_filtered.groupby(['state', 'district', 'pincode'])[['total_enrol', 'total_bio']].sum().reset_index()
-        # Limit nodes for performance
-        if len(tree_df) > 1000:
-            tree_df = tree_df.nlargest(1000, 'total_enrol')
-            
-        fig_tree = px.treemap(tree_df, path=[px.Constant("India"), 'state', 'district', 'pincode'], 
-                              values='total_enrol', color='total_bio',
-                              color_continuous_scale='RdBu',
-                              title="Enrolment Volume (Size) vs Biometric Updates (Color)")
-        st.plotly_chart(fig_tree, use_container_width=True)
-
-    # --- TAB 3: DEMOGRAPHICS ---
-    with tab3:
-        st.subheader("Age Group Analysis")
-        
-        # Aggregate Age Buckets
-        age_cols = ['enrol_0_5', 'enrol_5_17', 'enrol_18_plus']
-        age_data = {col: df_filtered[col].sum() for col in age_cols if col in df_filtered.columns}
-        
-        if age_data:
-            c1, c2 = st.columns(2)
-            with c1:
-                # Pie Chart
-                fig_pie = px.pie(names=list(age_data.keys()), values=list(age_data.values()), 
-                                 title="Enrolment by Age Group", hole=0.4, template="plotly_dark")
-                st.plotly_chart(fig_pie, use_container_width=True)
-            with c2:
-                # Update Types comparison
-                update_data = {
-                    'Biometric': df_filtered['total_bio'].sum(),
-                    'Demographic': df_filtered['total_demo'].sum()
-                }
-                fig_bar = px.bar(x=list(update_data.keys()), y=list(update_data.values()), color=list(update_data.keys()),
-                                 title="Update Type Distribution", template="plotly_dark")
-                st.plotly_chart(fig_bar, use_container_width=True)
-
-    # --- TAB 4: TRENDS & FORECAST ---
-    with tab4:
-        st.subheader("📈 Prescriptive Analytics: 30-Day Forecast")
-        
-        forecast_metric = st.selectbox("Select Metric to Forecast", ['total_enrol', 'total_bio'])
-        
-        # Historical Plot
-        daily_hist = df_filtered.groupby('date')[forecast_metric].sum().reset_index()
-        fig_hist = px.line(daily_hist, x='date', y=forecast_metric, title=f"Historical {forecast_metric}", template="plotly_dark")
-        
-        # Forecast
-        with st.spinner("Calculating future trends..."):
-            forecast_df = forecast_next_30_days(df_filtered, metric=forecast_metric)
-            
-        if not forecast_df.empty:
-            # Add forecast trace
-            fig_hist.add_trace(go.Scatter(
-                x=forecast_df['date'], y=forecast_df['forecast'],
-                mode='lines', name='Forecast (Next 30 Days)',
-                line=dict(color='orange', width=2, dash='dash')
-            ))
-            st.plotly_chart(fig_hist, use_container_width=True)
-            
-            st.info("💡 **Insight**: Based on current trends, we predict a **{:.1f}%** change in volume over the next month.".format(
-                ((forecast_df['forecast'].mean() - daily_hist[forecast_metric].mean()) / daily_hist[forecast_metric].mean()) * 100
-            ))
-        else:
-            st.plotly_chart(fig_hist, use_container_width=True)
-            st.warning("Not enough data points to generate a reliable forecast.")
-
-    # --- TAB 5: AI INSIGHTS ---
-    with tab5:
-        st.subheader("Cluster Analysis: District Performance Groups")
-        
-        dist_clusters = cluster_districts(df_filtered)
-        if not dist_clusters.empty:
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                fig_scatter = px.scatter(dist_clusters, x='total_enrol', y='total_bio', 
-                                         color='cluster_label', size='update_ratio',
-                                         hover_data=['district'],
-                                         title="District Clusters: Enrolment vs Updates",
-                                         template="plotly_dark")
-                st.plotly_chart(fig_scatter, use_container_width=True)
-            with c2:
-                st.write("**Cluster Definitions:**")
-                st.info("**High Activity**: Districts with massive enrolment & update loads. Need more centers.")
-                st.success("**Medium Activity**: Stable operations.")
-                st.warning("**Low Activity**: Potential coverage gaps or rural areas.")
-                
-            st.dataframe(dist_clusters[['district', 'cluster_label', 'total_enrol', 'total_bio']], use_container_width=True)
-
+    district_geojson = get_district_geojson()
+    
+    # Try Map First
+    if district_geojson:
+        # Note: District names often mismatch (e.g. 'Bangalore' vs 'Bengaluru'). 
+        # We assume dataset names match GeoJSON 'NAME_2' or 'DISTRICT' properties.
+        fig_map = px.choropleth(
+            geo_agg,
+            geojson=district_geojson,
+            featureidkey='properties.NAME_2', # Common property for district names in this file
+            locations='district',
+            color='Total',
+            color_continuous_scale='Magma',
+            title=f"District Heatmap: {selected_state}",
+            hover_data=['total_enrol', 'total_bio']
+        )
+        # This focuses the map on the data points available
+        fig_map.update_geos(fitbounds="locations", visible=False)
+        st.plotly_chart(fig_map, use_container_width=True)
+    
+    # Also show Bar Chart for better readability of top districts
+    fig_geo = px.bar(geo_agg.sort_values('Total', ascending=False).head(20), x='district', y='Total', title=f"Top Districts in {selected_state} (Ranked)")
+    st.plotly_chart(fig_geo, use_container_width=True)
