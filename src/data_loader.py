@@ -35,40 +35,73 @@ def load_and_merge_all() -> pd.DataFrame:
     demo_df = load_category_data("demographic")
     enrol_df = load_category_data("enrolment")
     
-    # Normalize columns
-    for df in [bio_df, demo_df, enrol_df]:
-        if not df.empty:
-            df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y', errors='coerce')
+    # 1. Standardize Column Names
+    # We want uniform age buckets: '0_5', '5_17', '18_plus'
+    
+    if not enrol_df.empty:
+        # Enrolment usually has: age_0_5, age_5_17, age_18_greater (or similar)
+        # Let's inspect and rename to standard 'enrol_0_5', 'enrol_5_17', 'enrol_18_plus'
+        enrol_df.columns = [c.strip().lower().replace(" ", "_") for c in enrol_df.columns]
+        
+        # Mapping logic based on observed headers
+        rename_map = {}
+        for c in enrol_df.columns:
+            if 'age_0_5' in c: rename_map[c] = 'enrol_0_5'
+            elif 'age_5_17' in c: rename_map[c] = 'enrol_5_17'
+            elif 'age_18' in c or 'greater' in c: rename_map[c] = 'enrol_18_plus'
+        enrol_df = enrol_df.rename(columns=rename_map)
+        
+        # Ensure date format
+        if 'date' in enrol_df.columns:
+            enrol_df['date'] = pd.to_datetime(enrol_df['date'], format='%d-%m-%Y', errors='coerce')
 
-    print("Merging data...")
+
+    if not bio_df.empty:
+        bio_df.columns = [c.strip().lower().replace(" ", "_") for c in bio_df.columns]
+        rename_map = {}
+        for c in bio_df.columns:
+            if '0_5' in c: rename_map[c] = 'bio_0_5'
+            elif '5_17' in c: rename_map[c] = 'bio_5_17'
+            elif '17_' in c or '18_' in c: rename_map[c] = 'bio_18_plus'
+        bio_df = bio_df.rename(columns=rename_map)
+        
+        if 'date' in bio_df.columns:
+            bio_df['date'] = pd.to_datetime(bio_df['date'], format='%d-%m-%Y', errors='coerce')
+
+    if not demo_df.empty:
+        demo_df.columns = [c.strip().lower().replace(" ", "_") for c in demo_df.columns]
+        rename_map = {}
+        for c in demo_df.columns:
+            if '0_5' in c: rename_map[c] = 'demo_0_5'
+            elif '5_17' in c: rename_map[c] = 'demo_5_17'
+            elif '17_' in c or '18_' in c: rename_map[c] = 'demo_18_plus'
+        demo_df = demo_df.rename(columns=rename_map)
+
+        if 'date' in demo_df.columns:
+            demo_df['date'] = pd.to_datetime(demo_df['date'], format='%d-%m-%Y', errors='coerce')
+
+    print("Merging data streams...")
     merge_keys = ['date', 'state', 'district', 'pincode']
     
-    # Rename value columns to prevent overlap
-    if not bio_df.empty:
-        bio_df = bio_df.rename(columns={c: f"bio_{c}" for c in bio_df.columns if c not in merge_keys})
-    if not demo_df.empty:
-        demo_df = demo_df.rename(columns={c: f"demo_{c}" for c in demo_df.columns if c not in merge_keys})
-    if not enrol_df.empty:
-        enrol_df = enrol_df.rename(columns={c: f"enrol_{c}" for c in enrol_df.columns if c not in merge_keys})
-    
+    # Outer join logic to keep all data points
+    # Start with Bio
     merged = bio_df
-    if not demo_df.empty:
-        if merged.empty:
-            merged = demo_df
-        else:
-            merged = pd.merge(merged, demo_df, on=merge_keys, how='outer')
-            
-    if not enrol_df.empty:
-        if merged.empty:
-            merged = enrol_df
-        else:
-            merged = pd.merge(merged, enrol_df, on=merge_keys, how='outer')
+    if merged.empty:
+        merged = demo_df
+    elif not demo_df.empty:
+        merged = pd.merge(merged, demo_df, on=merge_keys, how='outer')
+        
+    if merged.empty:
+        merged = enrol_df
+    elif not enrol_df.empty:
+        merged = pd.merge(merged, enrol_df, on=merge_keys, how='outer')
             
     merged = merged.fillna(0)
-    print(f"Loaded {len(merged)} records.")
+    
+    # 2. Add Total Columns for easy analysis
+    merged['total_enrol'] = merged.get('enrol_0_5', 0) + merged.get('enrol_5_17', 0) + merged.get('enrol_18_plus', 0)
+    merged['total_bio'] = merged.get('bio_0_5', 0) + merged.get('bio_5_17', 0) + merged.get('bio_18_plus', 0)
+    merged['total_demo'] = merged.get('demo_0_5', 0) + merged.get('demo_5_17', 0) + merged.get('demo_18_plus', 0)
+    
+    print(f"Data Pipeline Complete. Loaded {len(merged)} records.")
     return merged
-
-if __name__ == "__main__":
-    load_and_merge_all()

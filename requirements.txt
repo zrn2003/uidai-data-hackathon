@@ -3,3 +3,4 @@ streamlit
 scikit-learn
 plotly
 statsmodels
+folium

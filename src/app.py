@@ -1,168 +1,199 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from data_loader import load_and_merge_all
-from models import load_or_train_model
+from models import load_or_train_model, forecast_next_30_days, cluster_districts
 
-st.set_page_config(page_title="Aadhaar Sentinel", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Aadhaar Analytics Dashboard", layout="wide", page_icon="🇮🇳")
 
-# Custom CSS for "Command Center" look
+# Custom CSS for Professional UI
 st.markdown("""
 <style>
-    .reportview-container {
-        background: #0e1117;
-    }
-    .main {
-        background: #0e1117;
-        color: white;
-    }
-    h1, h2, h3 {
-        color: #00ffcc !important;
-        font-family: 'Roboto Mono', monospace;
-    }
-    .stMetric {
-        background-color: #1f2937;
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #374151;
-    }
+    .main { background: #0e1117; }
+    h1, h2, h3 { font-family: 'Roboto', sans-serif; color: #00ffcc; }
+    .stMetric { background-color: #1f2937; padding: 15px; border-radius: 8px; border: 1px solid #374151; }
+    .css-1d391kg { padding-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
 @st.cache_data
 def get_data():
-    df = load_and_merge_all()
-    # Ensure date is datetime
-    if 'date' in df.columns:
-        df['date'] = pd.to_datetime(df['date'])
-    return df
+    return load_and_merge_all()
 
 @st.cache_resource
-def get_model(df):
+def get_ai_models(df):
     model, df_scored = load_or_train_model(df)
     return df_scored
 
 def main():
-    st.title("🛡️ Aadhaar Sentinel: Integrity Command Center")
-    st.markdown("### Operational Intelligence & Anomaly Detection System")
-    
-    with st.spinner("Initializing Sentinel System... Ingesting Data..."):
-        df = get_data()
+    st.title("🇮🇳 Aadhaar India-Wide Analytics Dashboard")
+    st.markdown("### Policy Optimization & Integrity Command Center")
+
+    with st.spinner("Ingesting 12+ Datasets & Processing 100M+ Records (Simulated)..."):
+        raw_df = get_data()
         
-    if df.empty:
-        st.error("No data found! Please check the dataset folder.")
+    if raw_df.empty:
+        st.error("Dataset Empty. Please check `dataset/` folder.")
         return
 
-    # Sidebar Filters - Hierarchical
-    st.sidebar.header("🔍 Filter Scope")
+    # Sidebar: Global Filters
+    st.sidebar.title("🔍 Analytics Filters")
     
-    # Level 1: State
-    states = ['All'] + sorted(list(df['state'].unique()))
-    selected_state = st.sidebar.selectbox("Select State", states)
+    # Date Filter
+    if 'date' in raw_df.columns:
+        min_date = raw_df['date'].min()
+        max_date = raw_df['date'].max()
+        date_range = st.sidebar.date_input("Date Range", [min_date, max_date])
     
-    # Level 2: District
-    if selected_state != 'All':
-        df_view = df[df['state'] == selected_state]
-        districts = ['All'] + sorted(list(df_view['district'].unique()))
-        selected_district = st.sidebar.selectbox("Select District", districts)
+    # Location Filter
+    states = ['All India'] + sorted(list(raw_df['state'].unique()))
+    selected_state = st.sidebar.selectbox("State / Union Territory", states)
+    
+    df_filtered = raw_df.copy()
+    if selected_state != 'All India':
+        df_filtered = df_filtered[df_filtered['state'] == selected_state]
         
-        # Level 3: Pincode / Drill Down
-        if selected_district != 'All':
-            df_view = df_view[df_view['district'] == selected_district]
-            pincodes = ['All'] + sorted(list(df_view['pincode'].unique()))
-            selected_pincode = st.sidebar.selectbox("Select Pincode", pincodes)
-            if selected_pincode != 'All':
-                 df_view = df_view[df_view['pincode'] == selected_pincode]
-    else:
-        df_view = df
+    # Apply Date Filter
+    if 'date' in df_filtered.columns and len(date_range) == 2:
+        df_filtered = df_filtered[(df_filtered['date'] >= pd.to_datetime(date_range[0])) & 
+                                  (df_filtered['date'] <= pd.to_datetime(date_range[1]))]
+                                  
+    st.sidebar.markdown("---")
+    st.sidebar.download_button(
+        label="📥 Export Cleaned Data",
+        data=df_filtered.to_csv(index=False).encode('utf-8'),
+        file_name='aadhaar_analytics_export.csv',
+        mime='text/csv'
+    )
 
-    # Run AI Model
-    with st.spinner("The Watchdog is analyzing patterns..."):
-        df_view = get_model(df_view)
+    # Run AI Analysis on Filtered Data
+    df_filtered = get_ai_models(df_filtered)
 
-    # KPI Row
-    c1, c2, c3, c4 = st.columns(4)
-    total_recs = len(df_view)
-    anomalies = df_view[df_view['is_anomaly'] == -1]
-    anomaly_count = len(anomalies)
-    
-    # Calculate approximations if columns exist
-    enrol_cols = [c for c in df_view.columns if 'enrol' in c and pd.api.types.is_numeric_dtype(df_view[c])]
-    bio_cols = [c for c in df_view.columns if 'bio_' in c and pd.api.types.is_numeric_dtype(df_view[c])]
-    demo_cols = [c for c in df_view.columns if 'demo_' in c and pd.api.types.is_numeric_dtype(df_view[c])]
+    # --- MAIN TABS ---
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Executive Overview", 
+        "🗺️ Geospatial Intelligence", 
+        "👥 Demographics", 
+        "📈 Forecasting Trends",
+        "🧠 AI Insights (Clusters)"
+    ])
 
-    total_enrol = df_view[enrol_cols].sum().sum() if enrol_cols else 0
-    total_updates = (df_view[bio_cols].sum().sum() if bio_cols else 0) + (df_view[demo_cols].sum().sum() if demo_cols else 0)
-
-    c1.metric("Total Records", f"{total_recs:,}")
-    c2.metric("Total Enrolments", f"{int(total_enrol):,}")
-    c3.metric("Total Updates", f"{int(total_updates):,}")
-    c4.metric("⚠️ Anomalies Detected", f"{anomaly_count}", delta_color="inverse")
-
-    # Tabs
-    tab1, tab2, tab3 = st.tabs(["📊 Executive Overview", "🚨 Risk Radar (Anomalies)", "🗺️ Geospatial View"])
-
+    # --- TAB 1: OVERVIEW ---
     with tab1:
-        st.subheader("Activity Trends")
-        if 'date' in df_view.columns:
-            # Aggregate by date
-            daily_stats = df_view.groupby('date')[['total_bio', 'total_demo']].sum().reset_index() if 'total_bio' in df_view.columns else pd.DataFrame()
-            if not daily_stats.empty:
-                daily_melt = daily_stats.melt(id_vars=['date'], var_name='Metric', value_name='Count')
-                fig = px.line(daily_melt, x='date', y='Count', color='Metric', template='plotly_dark')
-                st.plotly_chart(fig, use_container_width=True)
-
-    with tab2:
-        st.subheader("⚠️ High Value Anomalies")
+        # Top KPIs
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Enrolments", f"{int(df_filtered['total_enrol'].sum()):,}")
+        c2.metric("Biometric Updates", f"{int(df_filtered['total_bio'].sum()):,}")
+        c3.metric("Demographic Updates", f"{int(df_filtered['total_demo'].sum()):,}")
+        anomalies = df_filtered[df_filtered.get('is_anomaly', 1) == -1]
+        c4.metric("⚠️ Anomalies Detected", f"{len(anomalies)}", delta_color="inverse")
         
-        if anomaly_count > 0:
-            st.warning(f"Found {anomaly_count} suspicious records in this view.")
-            
-            # Smart Table with Reasons
-            display_cols = ['date', 'state', 'district', 'pincode', 'anomaly_reason', 'anomaly_score']
-            # Add metric columns if space permits
-            display_cols += ['total_bio', 'total_demo'] if 'total_bio' in df_view.columns else []
-            
-            # Filter columns to only those that exist
-            display_cols = [c for c in display_cols if c in df_view.columns]
-            
+        st.markdown("---")
+        
+        # Recent Anomalies Table
+        st.subheader("🚨 Recent Integrity Alerts")
+        if not anomalies.empty:
             st.dataframe(
-                anomalies.sort_values('anomaly_score')[display_cols],
-                use_container_width=True,
-                column_config={
-                    "anomaly_reason": st.column_config.TextColumn("AI Diagnosis", width="large"),
-                    "anomaly_score": st.column_config.ProgressColumn("Risk Score", format="%.2f", min_value=-0.5, max_value=0.5),
-                }
+                anomalies.sort_values('date', ascending=False).head(10)[['date', 'state', 'district', 'pincode', 'anomaly_reason']],
+                use_container_width=True
             )
         else:
-            st.success("No significant anomalies detected in this view.")
+            st.success("No anomalies detected in the current view.")
 
-    with tab3:
-        st.subheader("Regional Deep Dive")
+    # --- TAB 2: GEOSPATIAL ---
+    with tab2:
+        st.subheader(f" Geographic Distribution - {selected_state}")
         
-        # Dynamic Grouping based on Selection Level
-        if selected_state == 'All':
-            # National View -> Show States
-            group_col = 'state'
-            title = "Total Activity by State"
-        elif selected_district == 'All':
-            # State View -> Show Districts
-            group_col = 'district'
-            title = f"Total Activity by District in {selected_state}"
+        # Use Treemap to simulate "Drill Down" from State -> District -> Pincode
+        # This is very effective for hierarchical data without shapefiles
+        st.markdown("**Hierarchy Map (State > District > Pincode)**")
+        
+        tree_df = df_filtered.groupby(['state', 'district', 'pincode'])[['total_enrol', 'total_bio']].sum().reset_index()
+        # Limit nodes for performance
+        if len(tree_df) > 1000:
+            tree_df = tree_df.nlargest(1000, 'total_enrol')
+            
+        fig_tree = px.treemap(tree_df, path=[px.Constant("India"), 'state', 'district', 'pincode'], 
+                              values='total_enrol', color='total_bio',
+                              color_continuous_scale='RdBu',
+                              title="Enrolment Volume (Size) vs Biometric Updates (Color)")
+        st.plotly_chart(fig_tree, use_container_width=True)
+
+    # --- TAB 3: DEMOGRAPHICS ---
+    with tab3:
+        st.subheader("Age Group Analysis")
+        
+        # Aggregate Age Buckets
+        age_cols = ['enrol_0_5', 'enrol_5_17', 'enrol_18_plus']
+        age_data = {col: df_filtered[col].sum() for col in age_cols if col in df_filtered.columns}
+        
+        if age_data:
+            c1, c2 = st.columns(2)
+            with c1:
+                # Pie Chart
+                fig_pie = px.pie(names=list(age_data.keys()), values=list(age_data.values()), 
+                                 title="Enrolment by Age Group", hole=0.4, template="plotly_dark")
+                st.plotly_chart(fig_pie, use_container_width=True)
+            with c2:
+                # Update Types comparison
+                update_data = {
+                    'Biometric': df_filtered['total_bio'].sum(),
+                    'Demographic': df_filtered['total_demo'].sum()
+                }
+                fig_bar = px.bar(x=list(update_data.keys()), y=list(update_data.values()), color=list(update_data.keys()),
+                                 title="Update Type Distribution", template="plotly_dark")
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- TAB 4: TRENDS & FORECAST ---
+    with tab4:
+        st.subheader("📈 Prescriptive Analytics: 30-Day Forecast")
+        
+        forecast_metric = st.selectbox("Select Metric to Forecast", ['total_enrol', 'total_bio'])
+        
+        # Historical Plot
+        daily_hist = df_filtered.groupby('date')[forecast_metric].sum().reset_index()
+        fig_hist = px.line(daily_hist, x='date', y=forecast_metric, title=f"Historical {forecast_metric}", template="plotly_dark")
+        
+        # Forecast
+        with st.spinner("Calculating future trends..."):
+            forecast_df = forecast_next_30_days(df_filtered, metric=forecast_metric)
+            
+        if not forecast_df.empty:
+            # Add forecast trace
+            fig_hist.add_trace(go.Scatter(
+                x=forecast_df['date'], y=forecast_df['forecast'],
+                mode='lines', name='Forecast (Next 30 Days)',
+                line=dict(color='orange', width=2, dash='dash')
+            ))
+            st.plotly_chart(fig_hist, use_container_width=True)
+            
+            st.info("💡 **Insight**: Based on current trends, we predict a **{:.1f}%** change in volume over the next month.".format(
+                ((forecast_df['forecast'].mean() - daily_hist[forecast_metric].mean()) / daily_hist[forecast_metric].mean()) * 100
+            ))
         else:
-            # District View -> Show Pincodes
-            group_col = 'pincode'
-            title = f"Activity by Pincode in {selected_district}"
-            
-        if group_col in df_view.columns:
-            group_agg = df_view.groupby(group_col)[['total_bio', 'total_demo']].sum().reset_index()
-            group_agg['Total'] = group_agg['total_bio'] + group_agg['total_demo']
-            
-            fig_bar = px.bar(group_agg.sort_values('Total', ascending=False).head(50), 
-                             x=group_col, y='Total', color='Total',
-                             title=title, template='plotly_dark')
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_hist, use_container_width=True)
+            st.warning("Not enough data points to generate a reliable forecast.")
 
+    # --- TAB 5: AI INSIGHTS ---
+    with tab5:
+        st.subheader("Cluster Analysis: District Performance Groups")
+        
+        dist_clusters = cluster_districts(df_filtered)
+        if not dist_clusters.empty:
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                fig_scatter = px.scatter(dist_clusters, x='total_enrol', y='total_bio', 
+                                         color='cluster_label', size='update_ratio',
+                                         hover_data=['district'],
+                                         title="District Clusters: Enrolment vs Updates",
+                                         template="plotly_dark")
+                st.plotly_chart(fig_scatter, use_container_width=True)
+            with c2:
+                st.write("**Cluster Definitions:**")
+                st.info("**High Activity**: Districts with massive enrolment & update loads. Need more centers.")
+                st.success("**Medium Activity**: Stable operations.")
+                st.warning("**Low Activity**: Potential coverage gaps or rural areas.")
+                
+            st.dataframe(dist_clusters[['district', 'cluster_label', 'total_enrol', 'total_bio']], use_container_width=True)
 
-if __name__ == "__main__":
-    main()

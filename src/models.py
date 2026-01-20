@@ -99,4 +99,84 @@ def load_or_train_model(df):
     # Generate explanations
     df = generate_anomaly_explanations(df)
     
+    
     return model, df
+
+def forecast_next_30_days(df: pd.DataFrame, metric: str = 'total_enrol') -> pd.DataFrame:
+    """
+    Predicts the next 30 days of activity using Exponential Smoothing.
+    """
+    try:
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
+    except ImportError:
+        print("Statsmodels not installed. Returning empty forecast.")
+        return pd.DataFrame()
+
+    # Aggregate to daily national level for simplicity (or state level if filtered before passing)
+    if 'date' not in df.columns or metric not in df.columns:
+        return pd.DataFrame()
+        
+    daily_df = df.groupby('date')[metric].sum().reset_index().set_index('date')
+    daily_df = daily_df.asfreq('D').fillna(0)
+    
+    if len(daily_df) < 14: # Need some history
+        return pd.DataFrame()
+        
+    try:
+        model = ExponentialSmoothing(daily_df[metric], seasonal_periods=7, trend='add', seasonal='add').fit()
+        future_days = 30
+        forecast_values = model.forecast(future_days)
+        
+        future_dates = pd.date_range(start=daily_df.index[-1] + pd.Timedelta(days=1), periods=future_days)
+        forecast_df = pd.DataFrame({'date': future_dates, 'forecast': forecast_values, 'metric': metric})
+        return forecast_df
+    except Exception as e:
+        print(f"Forecasting error: {e}")
+        return pd.DataFrame()
+
+def cluster_districts(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clusters districts into groups (e.g., 'High Volume', 'Low Volume') using K-Means.
+    """
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+    
+    # 1. Aggregate by District
+    # Features: Avg Daily Enrolment, Avg Daily Updates, Update Ratio
+    if 'total_enrol' not in df.columns: return df
+    
+    dist_stats = df.groupby('district').agg({
+        'total_enrol': 'mean',
+        'total_bio': 'mean',
+        'total_demo': 'mean'
+    }).reset_index()
+    
+    # Feature Engineering
+    dist_stats['update_ratio'] = (dist_stats['total_bio'] + dist_stats['total_demo']) / (dist_stats['total_enrol'] + 1)
+    
+    features = ['total_enrol', 'total_bio', 'update_ratio']
+    X = dist_stats[features].fillna(0)
+    
+    # Scale
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Cluster (3 clusters: Low, Medium, High typically)
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    dist_stats['cluster'] = kmeans.fit_predict(X_scaled)
+    
+    # Map cluster IDs to readable labels based on Enrolment mean
+    cluster_means = dist_stats.groupby('cluster')['total_enrol'].mean().sort_values()
+    # logical mapping: 0 -> "Low Activity", 1 -> "Medium", 2 -> "High" (indices might vary so we map by sorted order)
+    
+    label_map = {}
+    labels = ["Low Activity", "Medium Activity", "High Activity"]
+    for i, cluster_id in enumerate(cluster_means.index):
+        if i < 3:
+            label_map[cluster_id] = labels[i]
+            
+    dist_stats['cluster_label'] = dist_stats['cluster'].map(label_map)
+    
+    # Merge back to original DF? No, return District DF for map visualization
+    return dist_stats
+
