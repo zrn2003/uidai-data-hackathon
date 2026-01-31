@@ -88,7 +88,6 @@ def load_india_map():
 india_map, map_state_col = load_india_map()
 
 # 2. PREPARE DATA FOR MAP
-@st.cache_data
 def prepare_map_data(df):
     # Aggregate
     state_totals = df.groupby('state')['total_enrol'].sum().reset_index() # Use total_enrol or calculated 'total'
