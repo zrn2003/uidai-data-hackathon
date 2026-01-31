@@ -5,3 +5,6 @@ plotly
 statsmodels
 folium
 pyarrow
+geopandas
+prophet
+matplotlib
